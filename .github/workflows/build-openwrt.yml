@@ -33,9 +33,11 @@ jobs:
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        # NOTE: do NOT wipe /etc/apt/sources.list.d/* — on ubuntu-24.04 runners the
+        # only apt source (ubuntu.sources) lives there; deleting it = "Unable to locate package" for everything.
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
         sudo -E apt-get -qq update
-        sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp-dev libltdl-dev libmpc-dev libmpfr-dev libncurses-dev libncurses5-dev libncurses6-dev libncursesw5-dev libncursesw6-dev libpython3-dev libreadline-dev libssl-dev libtool libyaml-dev locales lzop m4 make pkg-config pkgconf python3 python3-setuptools python3-pyelftools rsync swig unzip upx-ucl vim wget xmlto xxd zlib1g-dev
+        sudo -E apt-get -qq install binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler file flex g++ gawk gcc-multilib g++-multilib gettext git gperf help2man intltool libelf-dev libltdl-dev libncurses-dev libpython3-dev libreadline-dev libssl-dev libtool locales lzop m4 make pkg-config python3 python3-pyelftools python3-setuptools rsync swig time unzip wget xmlto xxd zlib1g-dev
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
