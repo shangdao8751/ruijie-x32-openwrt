@@ -1,0 +1,1 @@
+# ruijie-x32-openwrt
