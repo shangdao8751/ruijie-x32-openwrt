@@ -1,0 +1,130 @@
+# Description: Build OpenWrt 25.12 for Ruijie RG-EW3200GX (X32 non-pro)
+# Based on P3TERX/Actions-OpenWrt pattern, port restored from ericvwv/ActionsOpenwrt
+name: Build OpenWrt X32
+
+on:
+  repository_dispatch:
+  workflow_dispatch:
+    inputs:
+      ssh:
+        description: 'SSH connection to Actions (debug)'
+        required: false
+        default: 'false'
+
+env:
+  REPO_URL: https://github.com/openwrt/openwrt
+  REPO_BRANCH: openwrt-25.12
+  CONFIG_FILE: config/X32.config
+  DIY_SH: scripts/diy-part2.sh
+  TZ: Asia/Shanghai
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Initialize environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp-dev libltdl-dev libmpc-dev libmpfr-dev libncurses-dev libncurses5-dev libncurses6-dev libncursesw5-dev libncursesw6-dev libpython3-dev libreadline-dev libssl-dev libtool libyaml-dev locales lzop m4 make pkg-config pkgconf python3 python3-setuptools python3-pyelftools rsync swig unzip upx-ucl vim wget xmlto xxd zlib1g-dev
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
+        sudo timedatectl set-timezone "$TZ"
+        sudo mkdir -p /workdir
+        sudo chown $USER:$GROUPS /workdir
+
+    - name: Clone source code
+      working-directory: /workdir
+      run: |
+        df -hT $PWD
+        git clone $REPO_URL -b $REPO_BRANCH --depth=1 openwrt
+        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+
+    - name: Cache ccache and downloads
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.ccache
+          /workdir/openwrt/dl
+        key: owrt-25.12-x32-${{ hashFiles('config/X32.config', 'scripts/diy-part2.sh') }}
+        restore-keys: |
+          owrt-25.12-x32-
+
+    - name: Load custom config and X32 port
+      run: |
+        cp $CONFIG_FILE openwrt/.config
+        chmod +x $DIY_SH
+        cd openwrt
+        $GITHUB_WORKSPACE/$DIY_SH
+
+    - name: Update feeds
+      run: cd openwrt && ./scripts/feeds update -a
+
+    - name: Install feeds
+      run: cd openwrt && ./scripts/feeds install -a
+
+    - name: Download packages
+      run: |
+        cd openwrt
+        make defconfig
+        make download -j8 -i
+        find dl -size -1024c -exec rm -f {} \;
+
+    - name: Compile the firmware
+      id: compile
+      run: |
+        cd openwrt
+        echo -e "$(nproc) thread compile"
+        make -j$(nproc) || make -j1 || make -j1 V=s
+        echo "status=success" >> $GITHUB_OUTPUT
+        grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
+        [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
+        echo "FILE_DATE=$(date +%Y%m%d-%H%M)" >> $GITHUB_ENV
+
+    - name: Check space usage
+      if: (!cancelled())
+      run: df -hT
+
+    - name: Upload firmware as artifact
+      uses: actions/upload-artifact@v4
+      if: steps.compile.outputs.status == 'success'
+      with:
+        name: X32-firmware-${{ env.FILE_DATE }}
+        path: openwrt/bin/targets/*/*/*.bin
+
+    - name: Organize files
+      id: organize
+      if: steps.compile.outputs.status == 'success'
+      run: |
+        cd openwrt/bin/targets/*/*
+        rm -rf packages *.buildinfo *.manifest profiles.json sha256sums
+        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: Upload firmware to release
+      uses: softprops/action-gh-release@v2
+      if: steps.organize.outputs.status == 'success'
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        name: OpenWrt 25.12 🚀 Ruijie X32 / ${{ env.FILE_DATE }}
+        tag_name: ${{ env.FILE_DATE }}
+        body: |
+          锐捷 RG-EW3200GX（标准版 X32）自建固件
+          源码：openwrt-25.12 官方分支 + 标准版移植补丁
+          刷写：现有 OpenWrt 上 sysupgrade 直接升级即可
+        files: ${{ env.FIRMWARE }}/*
+
+    - name: Delete workflow runs
+      uses: Mattraks/delete-workflow-runs@v2
+      with:
+        retain_days: 7
+        keep_minimum_runs: 3
